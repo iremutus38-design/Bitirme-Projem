@@ -1,0 +1,28 @@
+# Hassas dosyalar
+serviceAccountKey.json
+*.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.env
+*.egg-info/
+dist/
+build/
+
+# Yüz verileri (kişisel veri)
+faces/
+known_faces/
+
+# Log dosyaları
+logs/
+*.log
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
