@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "979548281996",
+    "project_id": "finalproject-eb873",
+    "storage_bucket": "finalproject-eb873.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:979548281996:android:357994dd48a38a68832fa9",
+        "android_client_info": {
+          "package_name": "com.example.bitirme_projesi"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCLNoWzilvJJixTaK3-IrkIFkI8hPVHXcI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
