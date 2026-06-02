@@ -13,7 +13,6 @@
 // users için Firebase UID.
 
 import 'dart:async';
-import 'dart:io';
 
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
@@ -170,12 +169,11 @@ class _YuzKartYonetimiSayfasiState extends State<YuzKartYonetimiSayfasi>
     _sonucGoster(result);
   }
 
-  Future<void> _kartBagla(String uid, String adSoyad) async {
-    // Kart UID'si için RFID okuyucuya bağlan
+  Future<void> _kartBagla(String uid, String adSoyad, String mevcutRfid) async {
     final String? rfid = await showDialog<String>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => _RfidOkutmaDialog(adSoyad: adSoyad),
+      builder: (ctx) => _RfidOkutmaDialog(adSoyad: adSoyad, mevcutRfid: mevcutRfid),
     );
 
     if (rfid == null || rfid.isEmpty) return;
@@ -382,7 +380,7 @@ class _YuzKartYonetimiSayfasiState extends State<YuzKartYonetimiSayfasi>
                   child: OutlinedButton.icon(
                     icon: const Icon(Icons.nfc),
                     label: Text(hasRfid ? "Kartı Değiştir" : "Kart Bağla"),
-                    onPressed: () => _kartBagla(uid, adSoyad),
+                    onPressed: () => _kartBagla(uid, adSoyad, rfid),
                   ),
                 ),
                 if (hasFace || hasRfid)
@@ -447,10 +445,11 @@ class _YuzKartYonetimiSayfasiState extends State<YuzKartYonetimiSayfasi>
 
 // ─────────────────────────────────────────────────────────────────────────────
 /// RFID kart okutma dialog'u.
-/// Windows'taki anten sunucusuna HTTP GET / isteği atar, kart UID'sini alır.
+/// rfid_events/ Firebase path'ini dinler — Windows'taki anten scripti oraya yazar.
 class _RfidOkutmaDialog extends StatefulWidget {
   final String adSoyad;
-  const _RfidOkutmaDialog({required this.adSoyad});
+  final String mevcutRfid;
+  const _RfidOkutmaDialog({required this.adSoyad, this.mevcutRfid = ''});
 
   @override
   State<_RfidOkutmaDialog> createState() => _RfidOkutmaDialogState();
@@ -459,12 +458,10 @@ class _RfidOkutmaDialog extends StatefulWidget {
 class _RfidOkutmaDialogState extends State<_RfidOkutmaDialog> {
   static const Color _neu = Color(0xFF005A71);
 
-  String _durum    = 'Anten sunucusuna bağlanılıyor...';
-  String _bulunan  = '';        // tespit edilen UID
-  bool   _tarama   = true;      // polling aktif mi
-  bool   _onaylandi = false;
-  Timer? _timer;
-  String _baselineUid = '';     // ilk okumada elde edilen "boş" değer
+  String _durum   = 'Kartı antene tutun...';
+  String _bulunan = '';
+
+  StreamSubscription? _sub;
 
   // Manuel giriş fallback
   final _manuelCtrl = TextEditingController();
@@ -473,100 +470,42 @@ class _RfidOkutmaDialogState extends State<_RfidOkutmaDialog> {
   @override
   void initState() {
     super.initState();
-    _baslat();
+    // Zaten kayıtlı kart varsa direkt göster
+    if (widget.mevcutRfid.isNotEmpty) {
+      _bulunan = widget.mevcutRfid;
+      _durum   = 'Mevcut kart';
+    } else {
+      _baslat();
+    }
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
+    _sub?.cancel();
     _manuelCtrl.dispose();
     super.dispose();
   }
 
-  // Anten sunucusuna tek bir GET isteği at, UID döndür
-  Future<String> _oku() async {
-    try {
-      final client = HttpClient();
-      client.connectionTimeout = const Duration(seconds: 3);
-      final req  = await client.get(_rfidAntenIp, _rfidAntenPort, '/');
-      final resp = await req.close();
-      final body = await resp.transform(
-          const SystemEncoding().decoder).join();
-      client.close();
-      return _uidCikar(body);
-    } catch (_) {
-      return '';
-    }
-  }
-
-  /// İki anten formatından UID çıkarır:
-  /// Format 1 – basit: "A4B72F19\n"
-  /// Format 2 – UHF:   "00:00:00; ....; 3; e28068...; e28069...;;"
-  String _uidCikar(String body) {
-    final trimmed = body.trim();
-
-    // Format 1: tüm body zaten bir hex string
-    if (RegExp(r'^[0-9A-Fa-f]{8,}$').hasMatch(trimmed)) {
-      return trimmed.toUpperCase();
-    }
-
-    // Format 2: UHF satırı — sayı alanından sonraki UID bloğu
-    final uhfMatch = RegExp(
-      r'\d{2}:\d{2}:\d{2}\s*;.*?;\s*(\d+)\s*;\s*(.*?);;',
-      dotAll: true,
-    ).firstMatch(trimmed);
-    if (uhfMatch != null) {
-      final count = int.tryParse(uhfMatch.group(1)?.trim() ?? '0') ?? 0;
-      if (count > 0) {
-        final uids = uhfMatch.group(2)!
-            .split(';')
-            .map((s) => s.trim().toUpperCase())
-            .where((s) => RegExp(r'^[0-9A-Fa-f]{8,}$').hasMatch(s))
-            .toList();
-        if (uids.isNotEmpty) return uids.first;
-      }
-      return ''; // UHF format ama kart yok
-    }
-
-    // Format 3: satır başına bir UID
-    for (final line in trimmed.split('\n')) {
-      final uid = line.trim().toUpperCase();
-      if (RegExp(r'^[0-9A-Fa-f]{8,}$').hasMatch(uid)) return uid;
-    }
-
-    return '';
-  }
-
-  Future<void> _baslat() async {
-    // Önce buffer temizle (baseline)
-    setState(() => _durum = 'Buffer temizleniyor...');
-    _baselineUid = await _oku();
-
-    if (!mounted) return;
-    setState(() => _durum = 'Kartı okuyucuya yaklaştırın...');
-
-    // Her 1.2 saniyede bir oku
-    _timer = Timer.periodic(const Duration(milliseconds: 1200), (_) async {
-      if (!_tarama || !mounted) return;
-      final uid = await _oku();
+  void _baslat() {
+    // rfid_events altına yeni eklenen kayıtları dinle
+    _sub = FirebaseDatabase.instance
+        .ref('rfid_events')
+        .orderByChild('consumed')
+        .equalTo(false)
+        .onChildAdded
+        .listen((event) {
       if (!mounted) return;
-
-      if (uid.isEmpty) {
-        setState(() => _durum = 'Bağlantı kurulamadı (${_rfidAntenIp}:${_rfidAntenPort})');
-        return;
-      }
-
-      // Baseline'dan farklı, anlamlı bir UID geldi mi?
-      if (uid != _baselineUid && uid.isNotEmpty) {
-        _timer?.cancel();
-        setState(() {
-          _tarama  = false;
-          _bulunan = uid;
-          _durum   = 'Kart okundu!';
-        });
-      } else {
-        setState(() => _durum = 'Kartı okuyucuya yaklaştırın...');
-      }
+      final data = event.snapshot.value;
+      if (data is! Map) return;
+      final uid = data['uid']?.toString().toUpperCase() ?? '';
+      if (uid.isEmpty) return;
+      // Consumed olarak işaretle
+      event.snapshot.ref.update({'consumed': true});
+      setState(() {
+        _bulunan = uid;
+        _durum   = 'Kart okundu!';
+      });
+      _sub?.cancel();
     });
   }
 
@@ -634,7 +573,7 @@ class _RfidOkutmaDialogState extends State<_RfidOkutmaDialog> {
         ],
         const SizedBox(height: 8),
         TextButton(
-          onPressed: () => setState(() { _manuelMod = true; _timer?.cancel(); _tarama = false; }),
+          onPressed: () => setState(() { _manuelMod = true; _sub?.cancel(); }),
           child: const Text('Manuel giriş', style: TextStyle(fontSize: 12)),
         ),
       ],
@@ -662,7 +601,6 @@ class _RfidOkutmaDialogState extends State<_RfidOkutmaDialog> {
           onPressed: () => setState(() {
             _manuelMod = false;
             _bulunan = '';
-            _tarama = true;
             _baslat();
           }),
           child: const Text('Okutarak bağla', style: TextStyle(fontSize: 12)),

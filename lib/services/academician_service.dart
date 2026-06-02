@@ -109,6 +109,11 @@ class AcademicianService {
       final result = await RestAuthService.instance
           .createUserSilently(cleanEmail, password);
       if (!result.success || result.uid == null) {
+        // EMAIL_EXISTS: Auth hesabı var ama DB kaydı olmayabilir.
+        // Email ile mevcut DB kaydını bul ve roller'ı güncelle.
+        if (result.message.contains('kayıtlı') || result.message.contains('EXISTS')) {
+          return await _repairByEmail(cleanEmail, cleanAd, unvan.trim(), verilenDersler, isIdari, mevcutIdari);
+        }
         return AcademicianCreateResult.fail(result.message);
       }
       final uid = result.uid!;
@@ -129,6 +134,48 @@ class AcademicianService {
       return AcademicianCreateResult.ok(uid);
     } catch (e) {
       return AcademicianCreateResult.fail("Hata: $e");
+    }
+  }
+
+  /// EMAIL_EXISTS hatası alındığında: DB'de email ile ara, kaydı güncelle/oluştur.
+  /// Auth UID'sine ulaşamadığımız için email'e göre arama yapar; kayıt yoksa
+  /// hata döner ve kullanıcı Firebase Console'dan manuel UID ile eklemelidir.
+  Future<AcademicianCreateResult> _repairByEmail(
+    String email,
+    String adSoyad,
+    String unvan,
+    List<dynamic> verilenDersler,
+    bool isIdari,
+    String? olusturanUid,
+  ) async {
+    try {
+      final snap = await _dbRef
+          .child('academic_users')
+          .orderByChild('email')
+          .equalTo(email)
+          .get();
+      if (snap.exists && snap.value is Map) {
+        // Kayıt var — roller'ı güncelle
+        final uid = (snap.value as Map).keys.first.toString();
+        final roller = <String, bool>{'akademisyen': true};
+        if (isIdari) roller['idare'] = true;
+        await _dbRef.child('academic_users/$uid').update({
+          'roller': roller,
+          'ad_soyad': adSoyad,
+          'unvan': unvan,
+          'email': email,
+          'verilen_dersler': verilenDersler,
+        });
+        return AcademicianCreateResult.ok(uid, "Mevcut hesap güncellendi");
+      } else {
+        // DB'de yok: Auth UID bilinmiyor, kullanıcı Firebase Console'dan eklemeli
+        return AcademicianCreateResult.fail(
+          'Bu email ($email) Firebase Auth\'ta kayıtlı ama Realtime DB\'de bulunamadı. '
+          'Firebase Console\'dan UID\'yi kopyalayıp academic_users/{uid}/roller/akademisyen:true ekleyin.',
+        );
+      }
+    } catch (e) {
+      return AcademicianCreateResult.fail('Onarım hatası: $e');
     }
   }
 

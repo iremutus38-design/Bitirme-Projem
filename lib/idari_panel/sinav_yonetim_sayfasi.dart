@@ -202,25 +202,6 @@ class _SinavTakvimiTabState extends State<_SinavTakvimiTab> {
     }
 
     return Column(children: [
-      // Üst buton
-      Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(12),
-        color: Colors.grey.shade50,
-        child: ElevatedButton.icon(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: _neu,
-            padding: const EdgeInsets.symmetric(vertical: 14),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-          icon: const Icon(Icons.auto_awesome, color: Colors.white),
-          label: const Text(
-            'Derslik Ata & Oturma Planı Oluştur',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-          ),
-          onPressed: _atamaBaslat,
-        ),
-      ),
       // Sınav listesi
       Expanded(
         child: RefreshIndicator(

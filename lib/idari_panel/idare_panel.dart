@@ -8,6 +8,7 @@ import 'package:bitirme_projesi/services/rest_auth_service.dart';
 import 'package:bitirme_projesi/services/sinav_service.dart';
 import 'package:bitirme_projesi/services/student_api_service.dart';
 import 'package:flutter/material.dart';
+import '../auth_page.dart';
 import 'idari_ayarlar_sayfasi.dart';
 
 class IdarePanel extends StatefulWidget {
@@ -31,7 +32,16 @@ class _IdarePanelState extends State<IdarePanel> {
           TextButton(onPressed: () => Navigator.pop(context), child: const Text("İptal")),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () async => RestAuthService.instance.signOut(),
+            onPressed: () async {
+              Navigator.pop(context);
+              await RestAuthService.instance.signOut();
+              if (context.mounted) {
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const AuthPage()),
+                  (_) => false,
+                );
+              }
+            },
             child: const Text("Çıkış Yap", style: TextStyle(color: Colors.white)),
           ),
         ],
